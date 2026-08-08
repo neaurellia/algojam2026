@@ -24,12 +24,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from simulation import positionLimits, totalDailyBudget, NO_LOCAL_PNL_INSTRUMENTS
+from simulation import (positionLimits, totalDailyBudget,
+                        NO_LOCAL_PNL_INSTRUMENTS, Algorithm)
 
-# Which Algorithm class is under test. Rebound by --algo so the per-author
-# files (algorithm_catherine.py, algorithm_hhanyu615.py) can be scored on the
-# same footing as the combined algorithm.py.
-Algorithm = importlib.import_module("algorithm").Algorithm
+# Algorithm above is deliberately imported FROM simulation rather than from a
+# module named here: whatever simulation.py runs is what this scores, so the
+# two can never quietly describe different strategies. --algo overrides it to
+# compare the per-author files against each other.
 
 # Shown for classes that predate SPEC, i.e. the imported per-author files.
 UNSPECIFIED = ("external", "see module source", None)
@@ -40,14 +41,6 @@ SPLIT_DAY = 182
 # Where timestamped reports and the running history are kept.
 REPORT_DIR = Path("reports")
 HISTORY_CSV = REPORT_DIR / "history.csv"
-
-# Steps reported by default: the book built up one signal at a time.
-DEFAULT_STEPS = [
-    ("1. UQ anchor + Boat w=5", ["UQ Dollar", "Boat Party Ticket"]),
-    ("2. + Sausage Sizzle",     ["UQ Dollar", "Boat Party Ticket", "Sausage Sizzle"]),
-    ("3. + Fintech Token",      ["UQ Dollar", "Boat Party Ticket", "Sausage Sizzle",
-                                 "Fintech Token"]),
-]
 
 
 def load_prices(dataFolder="data/"):
@@ -178,6 +171,7 @@ def build_report(prices, enabled, results, stamp):
     final = results[-1][1]
     lines = ["=" * 104,
              f"ALGOJAM 2026 STRATEGY REPORT   {stamp:%Y-%m-%d %H:%M}",
+             f"scoring {Algorithm.__module__}.py",
              "=" * 104, ""]
     lines += settings_lines(enabled) + [""]
     lines += results_lines(results) + [""]
@@ -215,9 +209,14 @@ def build_steps(spec, enabled):
     instruments it adds so the column stays readable however long the lists get.
     """
     if not spec:
-        steps = [s for s in DEFAULT_STEPS if set(s[1]) <= set(enabled)]
-        if not steps or set(steps[-1][1]) != set(enabled):
-            steps.append((f"{len(steps) + 1}. current book", enabled))
+        # Build the book up one instrument at a time in ENABLED order, so the
+        # labels always name what was actually added rather than a fixed list
+        # that goes stale whenever the book changes.
+        steps = []
+        for count in range(1, len(enabled) + 1):
+            names = enabled[:count]
+            label = f"{count}. " + ("+ " + names[-1] if count > 1 else names[0])
+            steps.append((label[:26], names))
         return steps
 
     steps, previous = [], set()
@@ -245,9 +244,9 @@ def traded_instruments(prices):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--algo", default="algorithm",
+    parser.add_argument("--algo", default=None,
                         help="module to score, e.g. algorithm_catherine "
-                             "(default: algorithm, the combined book)")
+                             "(default: whatever simulation.py imports)")
     parser.add_argument("--quiet", action="store_true",
                         help="print only the one-line summary")
     parser.add_argument("--no-save", action="store_true",
@@ -256,8 +255,9 @@ def main():
                         help="'/'-separated steps, each a comma-separated instrument list")
     args = parser.parse_args()
 
-    global Algorithm
-    Algorithm = importlib.import_module(args.algo).Algorithm
+    if args.algo:
+        global Algorithm
+        Algorithm = importlib.import_module(args.algo).Algorithm
 
     prices = load_prices()
     enabled = traded_instruments(prices)
