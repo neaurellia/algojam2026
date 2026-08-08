@@ -20,7 +20,7 @@ import csv
 import datetime
 import importlib
 import io
-import os
+from pathlib import Path
 
 import pandas as pd
 
@@ -38,8 +38,8 @@ UNSPECIFIED = ("external", "see module source", None)
 SPLIT_DAY = 182
 
 # Where timestamped reports and the running history are kept.
-REPORT_DIR = "reports"
-HISTORY_CSV = os.path.join(REPORT_DIR, "history.csv")
+REPORT_DIR = Path("reports")
+HISTORY_CSV = REPORT_DIR / "history.csv"
 
 # Steps reported by default: the book built up one signal at a time.
 DEFAULT_STEPS = [
@@ -52,12 +52,11 @@ DEFAULT_STEPS = [
 
 def load_prices(dataFolder="data/"):
     prices = {}
-    for file in os.listdir(dataFolder):
-        if file.endswith("_price_history.csv"):
-            instrument = file.split("_price_history")[0]
+    for file in Path(dataFolder).iterdir():
+        if file.name.endswith("_price_history.csv"):
+            instrument = file.name.split("_price_history")[0]
             if instrument in positionLimits:
-                prices[instrument] = pd.read_csv(
-                    os.path.join(dataFolder, file))["Price"].astype(float)
+                prices[instrument] = pd.read_csv(file)["Price"].astype(float)
     return pd.DataFrame(prices)
 
 
@@ -192,7 +191,7 @@ def build_report(prices, enabled, results, stamp):
 
 def append_history(stamp, enabled, final, filename):
     """One row per run, so progress across experiments stays comparable."""
-    is_new = not os.path.exists(HISTORY_CSV)
+    is_new = not HISTORY_CSV.exists()
     with open(HISTORY_CSV, "a", newline="") as handle:
         writer = csv.writer(handle)
         if is_new:
@@ -277,13 +276,13 @@ def main():
         print(report)
 
     if not args.no_save:
-        os.makedirs(REPORT_DIR, exist_ok=True)
+        REPORT_DIR.mkdir(exist_ok=True)
         filename = f"{stamp:%Y-%m-%d_%H%M}.txt"
-        with open(os.path.join(REPORT_DIR, filename), "w") as handle:
+        with open(REPORT_DIR / filename, "w") as handle:
             handle.write(report + "\n")
         append_history(stamp, enabled, final, filename)
         if not args.quiet:
-            print(f"\nSaved {os.path.join(REPORT_DIR, filename)} "
+            print(f"\nSaved {REPORT_DIR / filename} "
                   f"and appended to {HISTORY_CSV}")
 
     if args.quiet:

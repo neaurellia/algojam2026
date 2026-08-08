@@ -1,7 +1,7 @@
 # Library Imports
-import os
+from pathlib import Path
 import pandas as pd
-from algorithm import Algorithm
+from trader_interface.algorithm import Algorithm
 import numpy as np
 import matplotlib.pyplot as plt
 from decimal import Decimal, ROUND_HALF_UP
@@ -63,12 +63,11 @@ class TradingEngine:
     # For loading in relevant data from .CSV Files
     def load_data(self):
         self.data = {}
-        for file in os.listdir(self.dataFolder):
-            if file.endswith('_price_history.csv'):
-                instrumentName = file.split('_')[0]
+        for file in Path(self.dataFolder).iterdir():
+            if file.name.endswith('_price_history.csv'):
+                instrumentName = file.name.split('_')[0]
                 if instrumentName in positionLimits.keys():
-                    filePath = os.path.join(self.dataFolder, file)
-                    self.data[instrumentName] = pd.read_csv(filePath)
+                    self.data[instrumentName] = pd.read_csv(file)
                 else:
                     print(f"No position limit set for {instrumentName}. This dataset will not be loaded.")
         # Ensure that all data have same length of days
@@ -368,9 +367,9 @@ class TradingEngine:
         fig.canvas.mpl_connect("pick_event", on_pick)
 
         # ── Save & show ───────────────────────────────────────────────────────
-        output_dir = "./simulation_results"
-        os.makedirs(output_dir, exist_ok=True)
-        fig.savefig(os.path.join(output_dir, "returns_plot.png"),
+        output_dir = Path("./simulation_results")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_dir / "returns_plot.png",
                     dpi=300, facecolor=BG, bbox_inches="tight")
         plt.show()
         plt.close(fig)

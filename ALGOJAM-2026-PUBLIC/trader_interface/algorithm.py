@@ -1,13 +1,10 @@
-import os
-
 import numpy as np
 
 # Custom trading Algorithm
 class Algorithm():
 
     # Instruments this algorithm takes a position on. Anything not listed here
-    # is held flat. Set ALGOJAM_ENABLE to a comma-separated subset to run a
-    # partial book (used when adding one signal at a time).
+    # is held flat.
     ENABLED = [
         "UQ Dollar",
         "Sausage Sizzle",
@@ -66,9 +63,6 @@ class Algorithm():
         self.positionLimits = {}    # Initialise position limits
         self.day = 0     # Initialise the current day as 0
         self.positions = positions   # Initialise the current positions
-        override = os.environ.get("ALGOJAM_ENABLE")
-        if override:
-            self.ENABLED = [s.strip() for s in override.split(",") if s.strip()]
 
     def get_current_price(self, instrument):
         """
