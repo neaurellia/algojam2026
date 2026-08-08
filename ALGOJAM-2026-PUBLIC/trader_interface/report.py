@@ -90,11 +90,14 @@ def measure(prices, positions, instruments):
     perfect = pd.Series(0.0, index=prices.index)
     exposure = pd.Series(0.0, index=prices.index)
     for name in instruments:
+        # Exposure is counted for EVERY instrument, including ones that pay no
+        # local P&L: notWithinBudget charges them against the daily cap all the
+        # same, and Liferaft at one unit is ~$150K of it.
+        exposure += (positions[name].abs() * prices[name]).fillna(0)
         if name in NO_LOCAL_PNL_INSTRUMENTS:
             continue
         pnl += (positions[name] * moves[name]).fillna(0)
         perfect += (moves[name].abs() * positionLimits[name]).fillna(0)
-        exposure += positions[name].abs() * prices[name]
     fit, test = slice(0, SPLIT_DAY), slice(SPLIT_DAY, len(prices) - 1)
     return dict(
         fit=pnl[fit].sum(), test=pnl[test].sum(), total=pnl.sum(),

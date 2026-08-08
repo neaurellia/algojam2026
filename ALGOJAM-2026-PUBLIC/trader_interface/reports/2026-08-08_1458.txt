@@ -1,0 +1,56 @@
+========================================================================================================
+ALGOJAM 2026 STRATEGY REPORT   2026-08-08 14:58
+scoring algorithm_catherine.py
+========================================================================================================
+
+SETTINGS
+  Instrument          Setting     Signal                           Limit  Params
+  ----------------------------------------------------------------------------
+  UQ Dollar           no window   100.0 - P[-1]                      650       0
+  Sausage Sizzle      no window   A + B*dBread + C*dSausage        3,000       3
+  Boat Party Ticket   ensemble    sign vote, w in 3/5/10/20        1,000       0
+  Fintech Token       w = 5       mean(P[-5:]) - P[-1]               100       1
+  Thrifted Jeans      MA 3/15     fast-slow, slope>5% over 10d       800       4
+  Bread               k = 7       P[-1] - P[-8]  (momentum)          500       1
+  MenuDash            flat        0                                    -       -
+  Sausage             flat        0                                    -       -
+  Liferaft Ticket     flat        0                                    -       -
+  ----------------------------------------------------------------------------
+  TOTAL FITTED PARAMS                                                          9
+
+RESULTS  (FIT = days 0-181, TEST = days 182-363)
+  Step                               FIT        TEST       Total   FitCap  TestCap      Gap   PeakBudget
+  ------------------------------------------------------------------------------------------------------
+  1. UQ Dollar                   $33,904     $30,648     $64,552    62.2%    64.4%   -2.2pp      $65,760
+  2. + Sausage Sizzle            $74,014     $66,317    $140,331    75.2%    76.2%   -1.0pp     $184,562
+  3. + Boat Party Ticket         $92,214     $91,437    $183,651    41.6%    45.7%   -4.1pp     $235,395
+  4. + Fintech Token            $122,189    $149,884    $272,074    28.4%    39.2%  -10.8pp     $315,584
+  5. + Thrifted Jeans           $145,645    $190,244    $335,890    19.4%    27.3%   -7.8pp     $361,185
+  6. + Bread                    $156,715    $201,264    $357,980    19.2%    26.6%   -7.4pp     $429,340
+
+PER-INSTRUMENT
+  Instrument                   FIT        TEST       Total  TestCap   Flips     MeanExp
+  -------------------------------------------------------------------------------------
+  UQ Dollar                $33,904     $30,648     $64,552    64.4%     168     $63,537
+  Sausage Sizzle           $40,110     $35,670     $75,780    90.6%     168    $112,802
+  Boat Party Ticket        $18,200     $25,120     $43,320    22.2%     143     $40,363
+  Fintech Token            $29,975     $58,447     $88,422    32.1%     148     $59,767
+  Thrifted Jeans           $23,456     $40,360     $63,816    12.8%      41     $31,216
+  Bread                    $11,070     $11,020     $22,090    18.3%      52     $61,542
+
+RISK  (all 365 days; no train/test split, so no contamination)
+  Instrument                MaxDD  Ret/DD  Sharpe   Hit%  Top20%  Bets  BeatsShuffle
+  ----------------------------------------------------------------------------------
+  UQ Dollar           $      -968    66.7    8.20   73.4    29.0   168        100.0%
+  Sausage Sizzle      $      -330   229.6   16.03   87.7    18.3   168        100.0%
+  Boat Party Ticket   $    -7,070     6.1    2.04   60.1   104.4   143        100.0%
+  Fintech Token       $   -34,772     2.5    2.96   59.7    61.0   148        100.0%
+  Thrifted Jeans      $   -18,208     3.5    1.51   50.8   147.8    41         94.5%
+  Bread               $    -2,960     7.5    2.25   56.1    80.8    52         99.5%
+  ----------------------------------------------------------------------------------
+  BOOK                $   -16,905    21.2    6.31   66.7    35.0                    
+
+  Budget: peak $429,340 / $600,000 cap (71.6%), $170,660 headroom
+
+  uq dollar no window, sausage sizzle no window, boat party ticket ensemble, fintech token w=5, thrifted jeans MA 3/15, bread k=7 | profit $357,980
+========================================================================================================

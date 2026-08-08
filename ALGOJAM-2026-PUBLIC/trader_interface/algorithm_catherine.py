@@ -24,15 +24,40 @@ import numpy as np
 class Algorithm():
 
     # Instruments this algorithm takes a position on. Anything not listed here
-    # is held flat.
+    # is held flat. Thrifted Jeans and Bread are parked: Jeans is the only
+    # signal that fails the shuffle test (94.5%, p ~ 0.055) and earns 148% of
+    # its money in its best 20 days, and Bread returns 36c per dollar of budget
+    # tied up. Both are revisitable once the core four are clean.
     ENABLED = [
         "UQ Dollar",
         "Sausage Sizzle",
         "Boat Party Ticket",
         "Fintech Token",
-        "Thrifted Jeans",
-        "Bread",
     ]
+
+    # Order in which instruments are kept when the daily budget gets tight:
+    # last entries are dropped first. Ranked by how much each signal can be
+    # relied on rather than by how much it earned -- Sizzle and UQ Dollar have
+    # the highest captures and the evenest fit/test splits, Fintech has the
+    # flattest parameter plateau. Liferaft is last because one unit is ~$150K
+    # and it pays no local P&L at all.
+    PRIORITY = [
+        "Sausage Sizzle",
+        "UQ Dollar",
+        "Fintech Token",
+        "Boat Party Ticket",
+        "Bread",
+        "Thrifted Jeans",
+        "MenuDash",
+        "Sausage",
+        "Liferaft Ticket",
+    ]
+
+    # Stay this far under the exchange's $600K cap. The engine values positions
+    # at the same prices used here, so without a margin a rounding edge could
+    # tip the total over -- and a breach zeroes EVERY position for the day, not
+    # just the offending one.
+    BUDGET_CEILING = 580_000
 
     # UQ Dollar oscillates around a hard $100 anchor (ACF(1) of daily changes
     # = -0.49, half-life 0.7 days). Using the constant rather than a rolling
@@ -85,14 +110,28 @@ class Algorithm():
     TJ_SLOPE_LOOKBACK = 10     # compare the slow MA against N days ago
     TJ_MIN_SLOPE = 0.05        # need >5% change over that span to trade
 
-    # Optional Fintech jump filter, OFF by default because it is the one idea
-    # here that has NOT been validated. The reasoning is sound -- when price
-    # steps to a new level a rolling mean straddles two regimes and keeps
-    # fading a move that never comes back, which is what cost -$16,215 over
-    # days 120-150 -- but reasoning is not evidence. Set to True and compare
+    # Fintech volatility filter: go flat after an outsized single-day move,
+    # resume once things are calm again.
+    #
+    # MEASURED, and it earns its place -- but NOT for the reason it was built.
+    # The theory was that it would rescue the days 120-150 crash, where a
+    # rolling mean straddles two price levels and keeps fading a move that
+    # never comes back. It does not: that window loses $16,945 with the filter
+    # on or off, and none of the 18 days it pauses fall inside it. What it
+    # actually does is sit out three other volatility clusters (days 157-162,
+    # 231-237, 325-329), worth +$6,395 on the fitted half and -$3,093 on the
+    # held-out half; +$3,302 net, and the book's fit/test gap tightens from
+    # -10.8pp to -8.5pp.
+    #
+    # Treat that as provisional. A change that works for different reasons
+    # than its theory predicted is not yet understood, and $3,302 across 18
+    # days is thin support for three extra parameters. The days 120-150 loss
+    # remains the largest unsolved problem in this instrument.
+    #
+    # Set to False and compare
     # before trusting it. Thresholds are in units of the instrument's own
     # volatility so they do not need retuning per regime.
-    FT_JUMP_PAUSE = False
+    FT_JUMP_PAUSE = True
     FT_JUMP_SIGMA = 3.0        # a move over N rolling std devs starts a pause
     FT_CALM_DAYS = 2           # consecutive quiet days needed to resume
     FT_VOL_WINDOW = 20
@@ -246,6 +285,41 @@ class Algorithm():
             return 1.0
         return None
 
+    def enforce_budget(self, desiredPositions):
+        """
+        Drop whole instruments, cheapest-to-lose first, until the day's total
+        exposure fits under BUDGET_CEILING.
+
+        Dropping rather than scaling everything down is deliberate: a
+        proportional trim would quietly shrink Sizzle and UQ Dollar -- the two
+        most dependable earners -- to make room for whatever is least
+        trustworthy. Reverse-priority dropping protects the good signals and
+        sacrifices the marginal ones.
+
+        On Round 1 this never fires. It is insurance against Round 2 prices,
+        where a level shift in an expensive instrument could push the book over
+        the cap and have the engine zero every position for that day.
+        """
+        def exposure():
+            return sum(abs(position) * self.data[instrument][-1]
+                       for instrument, position in desiredPositions.items()
+                       if position)
+
+        total = exposure()
+        if total <= self.BUDGET_CEILING:
+            return desiredPositions
+
+        dropped = []
+        for instrument in reversed(self.PRIORITY):
+            if total <= self.BUDGET_CEILING:
+                break
+            if desiredPositions.get(instrument):
+                desiredPositions[instrument] = 0
+                dropped.append(instrument)
+                total = exposure()
+        print(f"BUDGET GUARD: dropped {', '.join(dropped)} -> ${total:,.0f}")
+        return desiredPositions
+
     # RETURN DESIRED POSITIONS IN DICT FORM
     def get_positions(self):
         # Get current position
@@ -266,10 +340,9 @@ class Algorithm():
         print("Starting Algorithm for Day:", self.day)
 
         # Greedy sizing: take the full position limit in whichever direction
-        # the signal points. Adding Bread takes peak exposure to roughly $424K
-        # of the $600K daily budget, so there is still no need to scale down --
-        # and the headroom matters, because a breach zeroes every position for
-        # the day, not just the offending one.
+        # the signal points. The four-instrument book peaks around $316K of the
+        # $600K daily budget, so there is no need to scale down -- but
+        # enforce_budget below is the backstop if Round 2 prices change that.
         for instrument in self.ENABLED:
             signal = self.get_signal(instrument)
             if signal is None or signal == 0:
@@ -279,6 +352,8 @@ class Algorithm():
             desiredPositions[instrument] = limit if signal > 0 else -limit
             print(f"{instrument}: ${self.get_current_price(instrument)} "
                   f"signal={signal:+.4f} position={desiredPositions[instrument]}")
+
+        desiredPositions = self.enforce_budget(desiredPositions)
 
         # Display the end of trading day
         print("Ending Algorithm for Day:", self.day, "\n")
