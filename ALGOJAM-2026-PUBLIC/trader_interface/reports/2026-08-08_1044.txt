@@ -1,0 +1,38 @@
+========================================================================================================
+ALGOJAM 2026 STRATEGY REPORT   2026-08-08 10:44
+========================================================================================================
+
+SETTINGS
+  Instrument          Setting     Signal                           Limit  Params
+  ----------------------------------------------------------------------------
+  UQ Dollar           no window   100.0 - P[-1]                      650       0
+  Boat Party Ticket   w = 5       mean(P[-5:]) - P[-1]             1,000       1
+  Sausage Sizzle      no window   A + B*dBread + C*dSausage        3,000       3
+  Fintech Token       w = 5       mean(P[-5:]) - P[-1]               100       1
+  Thrifted Jeans      flat        0                                    -       -
+  Bread               flat        0                                    -       -
+  MenuDash            flat        0                                    -       -
+  Sausage             flat        0                                    -       -
+  Liferaft Ticket     flat        0                                    -       -
+  ----------------------------------------------------------------------------
+  TOTAL FITTED PARAMS                                                          5
+
+RESULTS  (FIT = days 0-181, TEST = days 182-363)
+  Step                               FIT        TEST       Total   FitCap  TestCap      Gap   PeakBudget
+  ------------------------------------------------------------------------------------------------------
+  1. UQ anchor + Boat w=5        $62,984     $60,618    $123,602    35.4%    37.7%   -2.2pp     $120,278
+  2. + Sausage Sizzle            $85,184     $96,287    $181,472    38.4%    48.1%   -9.6pp     $235,395
+  3. + Fintech Token            $115,159    $154,734    $269,894    26.8%    40.5%  -13.7pp     $309,748
+
+PER-INSTRUMENT
+  Instrument                   FIT        TEST       Total  TestCap   Flips     MeanExp
+  -------------------------------------------------------------------------------------
+  UQ Dollar                $33,904     $30,648     $64,552    64.4%     168     $63,537
+  Boat Party Ticket        $29,080     $29,970     $59,050    26.5%     129     $46,246
+  Sausage Sizzle           $22,200     $35,670     $57,870    90.6%     146     $94,841
+  Fintech Token            $29,975     $58,447     $88,422    32.1%     148     $59,767
+
+  Budget: peak $309,748 / $600,000 cap (51.6%), $290,252 headroom
+
+  uq dollar no window, boat party ticket w=5, sausage sizzle no window, fintech token w=5 | profit $269,894
+========================================================================================================
