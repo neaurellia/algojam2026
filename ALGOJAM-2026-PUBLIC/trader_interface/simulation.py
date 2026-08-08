@@ -1,7 +1,7 @@
 # Library Imports
 from pathlib import Path
 import pandas as pd
-from trader_interface.algorithm import Algorithm
+from algorithm import Algorithm
 import numpy as np
 import matplotlib.pyplot as plt
 from decimal import Decimal, ROUND_HALF_UP
