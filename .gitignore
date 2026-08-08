@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Simulation output. Regenerated on every run of simulation.py, so there is
+# no reason to track it. Note that trader_interface/reports/ is deliberately
+# NOT ignored: those are the timestamped strategy reports commits refer back to.
+simulation_results/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
