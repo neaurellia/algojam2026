@@ -18,13 +18,21 @@ import argparse
 import contextlib
 import csv
 import datetime
+import importlib
 import io
 import os
 
 import pandas as pd
 
-from algorithm import Algorithm
 from simulation import positionLimits, totalDailyBudget, NO_LOCAL_PNL_INSTRUMENTS
+
+# Which Algorithm class is under test. Rebound by --algo so the per-author
+# files (algorithm_catherine.py, algorithm_hhanyu615.py) can be scored on the
+# same footing as the combined algorithm.py.
+Algorithm = importlib.import_module("algorithm").Algorithm
+
+# Shown for classes that predate SPEC, i.e. the imported per-author files.
+UNSPECIFIED = ("external", "see module source", None)
 
 # Day index that splits the fitted half from the held-out half.
 SPLIT_DAY = 182
@@ -61,7 +69,10 @@ def replay(prices, enabled):
     next day. The algorithm's own logging is swallowed so the report stays clean.
     """
     algo = Algorithm({instrument: 0 for instrument in positionLimits})
-    algo.ENABLED = list(enabled)
+    # Only classes that declare ENABLED can be restricted to a subset; the
+    # per-author files always trade their own fixed set.
+    if hasattr(algo, "ENABLED") and enabled is not None:
+        algo.ENABLED = list(enabled)
     positions = {instrument: 0 for instrument in positionLimits}
     rows = []
     for day in range(len(prices)):
@@ -105,9 +116,14 @@ def money(value, width=11):
     return f"${value:,.0f}".rjust(width)
 
 
+def spec_for(name):
+    """Signal description for one instrument, or a placeholder if undeclared."""
+    return getattr(Algorithm, "SPEC", {}).get(name, UNSPECIFIED)
+
+
 def one_liner(enabled, final):
     """Short settings + profit summary, sized for a commit subject line."""
-    parts = [f"{name.lower()} {Algorithm.SPEC[name][0].replace(' = ', '=')}"
+    parts = [f"{name.lower()} {spec_for(name)[0].replace(' = ', '=')}"
              for name in enabled]
     return f"{', '.join(parts)} | profit ${final['total']:,.0f}"
 
@@ -118,10 +134,11 @@ def settings_lines(enabled):
              "  " + "-" * 76]
     total_params = 0
     for name in enabled:
-        setting, signal, params = Algorithm.SPEC[name]
-        total_params += params
+        setting, signal, params = spec_for(name)
+        total_params += params or 0
         lines.append(f"  {name:<20}{setting:<12}{signal:<30}"
-                     f"{positionLimits[name]:>8,}{params:>8}")
+                     f"{positionLimits[name]:>8,}"
+                     f"{'-' if params is None else params:>8}")
     for name in positionLimits:
         if name not in enabled:
             lines.append(f"  {name:<20}{'flat':<12}{'0':<30}{'-':>8}{'-':>8}")
@@ -183,7 +200,7 @@ def append_history(stamp, enabled, final, filename):
                              "total", "fit_cap", "test_cap", "gap_pp", "peak_budget"])
         writer.writerow([
             f"{stamp:%Y-%m-%d %H:%M}", filename, "; ".join(enabled),
-            sum(Algorithm.SPEC[n][2] for n in enabled),
+            sum(spec_for(n)[2] or 0 for n in enabled),
             round(final["fit"], 2), round(final["test"], 2), round(final["total"], 2),
             round(final["fit_cap"] * 100, 1), round(final["test_cap"] * 100, 1),
             round((final["fit_cap"] - final["test_cap"]) * 100, 1),
@@ -214,8 +231,24 @@ def build_steps(spec, enabled):
     return steps
 
 
+def traded_instruments(prices):
+    """Which instruments the loaded class actually takes a position on.
+
+    Classes that declare ENABLED say so directly. For the per-author files,
+    which predate that convention, replay once and keep whatever they touch.
+    """
+    declared = getattr(Algorithm, "ENABLED", None)
+    if declared:
+        return list(declared)
+    positions = replay(prices, None)
+    return [name for name in prices.columns if (positions[name] != 0).any()]
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--algo", default="algorithm",
+                        help="module to score, e.g. algorithm_catherine "
+                             "(default: algorithm, the combined book)")
     parser.add_argument("--quiet", action="store_true",
                         help="print only the one-line summary")
     parser.add_argument("--no-save", action="store_true",
@@ -224,8 +257,11 @@ def main():
                         help="'/'-separated steps, each a comma-separated instrument list")
     args = parser.parse_args()
 
+    global Algorithm
+    Algorithm = importlib.import_module(args.algo).Algorithm
+
     prices = load_prices()
-    enabled = list(Algorithm.ENABLED)
+    enabled = traded_instruments(prices)
 
     steps = build_steps(args.steps, enabled)
     enabled = steps[-1][1]

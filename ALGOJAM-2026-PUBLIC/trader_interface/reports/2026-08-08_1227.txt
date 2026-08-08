@@ -1,0 +1,40 @@
+========================================================================================================
+ALGOJAM 2026 STRATEGY REPORT   2026-08-08 12:27
+========================================================================================================
+
+SETTINGS
+  Instrument          Setting     Signal                           Limit  Params
+  ----------------------------------------------------------------------------
+  UQ Dollar           no window   100.0 - P[-1]                      650       0
+  Sausage Sizzle      no window   A + B*dBread + C*dSausage        3,000       3
+  Boat Party Ticket   w = 5       mean(P[-5:]) - P[-1]             1,000       1
+  Fintech Token       w = 5       mean(P[-5:]) - P[-1]               100       1
+  Thrifted Jeans      MA 5/20     fast-slow, slope>2% over 10d       800       4
+  Bread               flat        0                                    -       -
+  MenuDash            flat        0                                    -       -
+  Sausage             flat        0                                    -       -
+  Liferaft Ticket     flat        0                                    -       -
+  ----------------------------------------------------------------------------
+  TOTAL FITTED PARAMS                                                          9
+
+RESULTS  (FIT = days 0-181, TEST = days 182-363)
+  Step                               FIT        TEST       Total   FitCap  TestCap      Gap   PeakBudget
+  ------------------------------------------------------------------------------------------------------
+  1. UQ anchor + Boat w=5        $62,984     $60,618    $123,602    35.4%    37.7%   -2.2pp     $120,278
+  2. + Sausage Sizzle           $103,094     $96,287    $199,381    46.5%    48.1%   -1.6pp     $235,395
+  3. + Fintech Token            $133,069    $154,734    $287,804    30.9%    40.5%   -9.5pp     $315,584
+  4. current book               $136,269    $233,198    $369,468    18.2%    33.4%  -15.2pp     $361,185
+
+PER-INSTRUMENT
+  Instrument                   FIT        TEST       Total  TestCap   Flips     MeanExp
+  -------------------------------------------------------------------------------------
+  UQ Dollar                $33,904     $30,648     $64,552    64.4%     168     $63,537
+  Sausage Sizzle           $40,110     $35,670     $75,780    90.6%     168    $112,802
+  Boat Party Ticket        $29,080     $29,970     $59,050    26.5%     129     $46,246
+  Fintech Token            $29,975     $58,447     $88,422    32.1%     148     $59,767
+  Thrifted Jeans            $3,200     $78,464     $81,664    24.9%      36     $34,629
+
+  Budget: peak $361,185 / $600,000 cap (60.2%), $238,815 headroom
+
+  uq dollar no window, sausage sizzle no window, boat party ticket w=5, fintech token w=5, thrifted jeans MA 5/20 | profit $369,468
+========================================================================================================
