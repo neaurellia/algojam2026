@@ -4,7 +4,10 @@ Where both authors cover an instrument, the version with the smaller fit/test
 imbalance wins even when it earns less, because the Round 1 headline is not
 what gets scored:
 
-  UQ Dollar        identical in both
+  UQ Dollar        neither. Both books hardcoded a $100 anchor; this one uses
+                   a 90-day rolling mean instead. Earns $3,237 less on Round 1
+                   and removes the only hardcoded LEVEL in the file -- see the
+                   UQ Dollar block below for why that trade is worth making.
   Sausage Sizzle   identical in both
   Boat Party       catherine's window ENSEMBLE over hhanyu615's w=5. The single
                    window earns more ($59,050 vs $43,320) but was chosen by
@@ -28,6 +31,8 @@ hhanyu615's book peaks at $603,291, which would have the engine zero every
 position on that day. enforce_budget below is what makes the combination
 viable.
 """
+import math
+
 import numpy as np
 
 
@@ -76,10 +81,32 @@ class Algorithm():
     BUDGET_CEILING = 580_000
 
     # ---- UQ Dollar ----------------------------------------------------------
-    # Hard $100 peg: ACF(1) of daily changes = -0.49, half-life 0.7 days. Using
-    # the constant rather than a rolling mean costs nothing and leaves zero
-    # parameters to fit. Highest capture in the book and the evenest quarters.
-    UQ_ANCHOR = 100.0
+    # Hard $100 peg: ACF(1) of daily changes = -0.49, half-life 0.7 days.
+    #
+    # The anchor is a rolling mean, NOT the constant 100.0 this used to hold.
+    # That swap trades a fitted LEVEL for a fitted WINDOW, and the two fail very
+    # differently. Every other signal here is scale-free -- differences, means
+    # minus price, z-scores, breakouts -- so all of them survive a Round 2 that
+    # re-prices. A hardcoded level does not: if the peg sits anywhere but $100
+    # we hold +/-650 units the wrong way EVERY day, on ~$63K of exposure, and
+    # the most dependable line in the book becomes the largest loser.
+    #
+    # The window is benign where the level was not. Measured on Round 1, every
+    # setting from 45 to 150 lands between $60,210 and $65,488 -- the choice
+    # barely matters. 90 is mid-plateau, deliberately not the $65,488 peak at
+    # w=45: picking the best cell of a grid is what this change exists to avoid.
+    #
+    # Costs $3,237 against the constant's $64,552 (5% of the line, 0.8% of the
+    # book) and is slightly BETTER balanced across the halves, 1.06 vs 1.11.
+    # That is the insurance premium for removing the only single-point failure
+    # in the file.
+    #
+    # No warmup guard and no fallback to 100.0 on purpose. Slicing [-90:] on
+    # short history just yields an expanding mean, so the anchor self-calibrates
+    # from day 0 -- on day 0 it equals today's price, giving signal 0, i.e.
+    # flat, which is the correct view when there is no history. A constant
+    # fallback would reintroduce the exact level bet being removed here.
+    UQ_ANCHOR_WINDOW = 90
 
     # ---- Boat Party Ticket --------------------------------------------------
     # Averaged across four windows rather than committing to one. The parameter
@@ -152,7 +179,7 @@ class Algorithm():
     # prints this straight out, so the documented settings can never drift from
     # the ones actually traded. "params" counts values fitted to the data.
     SPEC = {
-        "UQ Dollar":         ("no window", "100.0 - P[-1]",                  0),
+        "UQ Dollar":         ("w = 90",    "mean(P[-90:]) - P[-1]",          1),
         "Sausage Sizzle":    ("no window", "A + B*dBread + C*dSausage",      3),
         "Boat Party Ticket": ("ensemble",  "sign vote, w in 3/5/10/20",      0),
         "Fintech Token":     ("w = 5",     "mean(P[-5:]) - P[-1] + vol gate", 1),
@@ -227,6 +254,20 @@ class Algorithm():
         elif prices[-1] <= recent.min():
             setattr(self, attribute, -1)
         return float(getattr(self, attribute))
+
+    def uq_signal(self):
+        """
+        Positive when UQ Dollar sits below its own rolling mean, i.e. when the
+        peg should pull it back up.
+
+        Deliberately NOT reversion_signal, which returns None until its window
+        fills and would sit flat for the first 90 days. Slicing a short list
+        just yields an expanding mean, so the anchor is usable from day 0 and
+        never depends on a hardcoded level.
+        """
+        recent = np.array(self.data["UQ Dollar"][-self.UQ_ANCHOR_WINDOW:],
+                          dtype=float)
+        return recent.mean() - recent[-1]
 
     def sizzle_signal(self):
         """
@@ -335,7 +376,7 @@ class Algorithm():
     def get_signal(self, instrument):
         """Signal for one instrument; sign is the direction we want to hold."""
         if instrument == "UQ Dollar":
-            return self.UQ_ANCHOR - self.get_current_price(instrument)
+            return self.uq_signal()
         if instrument == "Sausage Sizzle":
             return self.sizzle_signal()
         if instrument == "Thrifted Jeans":
@@ -359,18 +400,32 @@ class Algorithm():
 
     def enforce_budget(self, desiredPositions):
         """
-        Drop whole instruments, cheapest-to-lose first, until the day's total
-        exposure fits under BUDGET_CEILING.
+        Trim positions, cheapest-to-lose first, until the day's total exposure
+        fits under BUDGET_CEILING.
 
-        Dropping rather than scaling everything down is deliberate: a
-        proportional trim would shrink Sizzle and UQ Dollar -- the two most
-        dependable earners -- to make room for whatever is least trustworthy.
-        Reverse-priority dropping protects the good signals and sacrifices the
-        marginal ones.
+        Walks reverse PRIORITY and SHRINKS each position by just enough units
+        to close the gap, only zeroing an instrument when trimming it whole
+        still is not enough. Reverse-priority order still protects Sizzle and
+        UQ Dollar -- the trimming starts at the least trusted end -- so this
+        keeps the old ordering logic and only changes how much gets taken.
 
-        With eight instruments this fires for real. hhanyu615's book without a
-        guard peaks at $603,291, over the cap, which would have the engine
-        zero every position on that day.
+        This used to zero whole instruments, which was wildly disproportionate.
+        Measured on Round 1: the guard fires on 30 of 365 days, drops MenuDash
+        every single time and nothing else ever, and the median day needed
+        $8,340 while freeing $147,000 -- an 18.6x overshoot. Day 44 needed $373
+        and freed $142,500. MenuDash at ~75,000 units and ~$1.87 only had to
+        give up ~6% of its position on a typical firing.
+
+        Trimming instead is worth $11,511 (total $423,294 -> $434,805), and
+        essentially all of it lands in the held-out half: FIT moves -$1,465
+        while TEST moves +$12,975. That asymmetry is expected rather than
+        lucky, because this adds NO parameters -- given that $X must be shed,
+        shedding exactly $X rather than 18x $X is not a view about the data.
+
+        The old comment argued against "scaling everything down proportionally"
+        and it was right to: that would shrink the best signals to fund the
+        worst. This is the different thing it did not consider -- scaling only
+        the marginal instrument, the one already chosen to be sacrificed.
         """
         def exposure():
             return sum(abs(position) * self.data[instrument][-1]
@@ -381,15 +436,35 @@ class Algorithm():
         if total <= self.BUDGET_CEILING:
             return desiredPositions
 
-        dropped = []
-        for instrument in reversed(self.PRIORITY):
+        # PRIORITY first, then anything it forgot. Without that tail an
+        # instrument added to ENABLED but missing from PRIORITY could never be
+        # trimmed, the loop would end still over budget, and the ENGINE zeroes
+        # EVERY position for the day -- far worse than any trim.
+        order = list(reversed(self.PRIORITY))
+        order += [name for name in desiredPositions if name not in self.PRIORITY]
+
+        actions = []
+        for instrument in order:
             if total <= self.BUDGET_CEILING:
                 break
-            if desiredPositions.get(instrument):
+            position = desiredPositions.get(instrument)
+            if not position:
+                continue
+            price = self.data[instrument][-1]
+            if price <= 0:
+                continue
+            # ceil, so rounding always lands us UNDER the ceiling, never a
+            # dollar over it.
+            shed = math.ceil((total - self.BUDGET_CEILING) / price)
+            if shed < abs(position):
+                keep = abs(position) - shed
+                desiredPositions[instrument] = keep if position > 0 else -keep
+                actions.append(f"{instrument} {abs(position)}->{keep}")
+            else:
                 desiredPositions[instrument] = 0
-                dropped.append(instrument)
-                total = exposure()
-        print(f"BUDGET GUARD: dropped {', '.join(dropped)} -> ${total:,.0f}")
+                actions.append(f"{instrument} flat")
+            total = exposure()
+        print(f"BUDGET GUARD: {', '.join(actions)} -> ${total:,.0f}")
         return desiredPositions
 
     # RETURN DESIRED POSITIONS IN DICT FORM

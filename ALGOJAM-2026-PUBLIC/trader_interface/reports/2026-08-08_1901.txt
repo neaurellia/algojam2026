@@ -1,0 +1,48 @@
+========================================================================================================
+ALGOJAM 2026 STRATEGY REPORT   2026-08-08 19:01
+scoring algorithm.py
+========================================================================================================
+
+SETTINGS
+  Instrument          Setting     Signal                           Limit  Params
+  ----------------------------------------------------------------------------
+  UQ Dollar           w = 90      mean(P[-90:]) - P[-1]              650       1
+  Sausage Sizzle      no window   A + B*dBread + C*dSausage        3,000       3
+  Boat Party Ticket   ensemble    sign vote, w in 3/5/10/20        1,000       0
+  Fintech Token       w = 5       mean(P[-5:]) - P[-1] + vol gate     100       1
+  Thrifted Jeans      MA 3/15     fast-slow, slope>5% over 10d       800       4
+  Sausage             w = 8       Donchian breakout, held between   5,000       1
+  Bread               k = 7       P[-1] - P[-8]  (momentum)          500       1
+  MenuDash            w = 10      -(z-score), |z| > 0.5           75,000       2
+  Liferaft Ticket     flat        0                                    -       -
+  ----------------------------------------------------------------------------
+  TOTAL FITTED PARAMS                                                         13
+
+RESULTS  (FIT = days 0-181, TEST = days 182-363)
+  Step                               FIT        TEST       Total   FitCap  TestCap      Gap   PeakBudget
+  ------------------------------------------------------------------------------------------------------
+  1. UQ Dollar                   $31,512     $29,803     $61,315    57.8%    62.6%   -4.8pp      $65,760
+  2. + Sausage Sizzle            $71,622     $65,472    $137,094    72.8%    75.3%   -2.5pp     $184,562
+  3. + Boat Party Ticket         $89,822     $90,592    $180,414    40.5%    45.2%   -4.7pp     $235,395
+  4. + Fintech Token            $126,192    $145,946    $272,139    29.3%    38.2%   -8.8pp     $315,584
+  5. + Thrifted Jeans           $149,648    $186,306    $335,954    20.0%    26.7%   -6.7pp     $361,185
+  6. + Sausage                  $155,948    $190,506    $346,455    20.1%    26.4%   -6.3pp     $388,435
+  7. + Bread                    $167,018    $201,526    $368,545    19.8%    25.8%   -6.0pp     $456,590
+  8. + MenuDash                 $208,303    $226,501    $434,805    20.0%    23.3%   -3.3pp     $580,000
+
+PER-INSTRUMENT
+  Instrument                   FIT        TEST       Total  TestCap   Flips     MeanExp
+  -------------------------------------------------------------------------------------
+  UQ Dollar                $31,512     $29,803     $61,315    62.6%     177     $64,784
+  Sausage Sizzle           $40,110     $35,670     $75,780    90.6%     168    $112,802
+  Boat Party Ticket        $18,200     $25,120     $43,320    22.2%     143     $40,363
+  Fintech Token            $36,370     $55,354     $91,724    30.4%     148     $57,413
+  Thrifted Jeans           $23,456     $40,360     $63,816    12.8%      41     $31,216
+  Sausage                   $6,300      $4,200     $10,500    17.6%      27     $26,843
+  Bread                    $11,070     $11,020     $22,090    18.3%      52     $61,542
+  MenuDash                 $41,285     $24,975     $66,260    13.0%     174     $97,537
+
+  Budget: peak $580,000 / $600,000 cap (96.7%), $20,000 headroom
+
+  uq dollar w=90, sausage sizzle no window, boat party ticket ensemble, fintech token w=5, thrifted jeans MA 3/15, sausage w=8, bread k=7, menudash w=10 | profit $434,805
+========================================================================================================
