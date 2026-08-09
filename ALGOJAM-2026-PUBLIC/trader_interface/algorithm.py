@@ -149,22 +149,39 @@ class Algorithm():
     # validate. Refitting causally makes the reported number mean what every
     # other line's number means.
     #
-    # Expanding rather than fixed-length on purpose. A rolling window would add
-    # a fitted LENGTH -- the same kind of choice the UQ Dollar block above
-    # exists to avoid -- while an expanding fit has nothing to tune and uses
-    # every observation it is entitled to. Set SIZZLE_WINDOW to an int to
-    # compare a trailing window; None means use all available history.
+    # Was expanding (SIZZLE_WINDOW = None) on the reasoning that a rolling
+    # window adds a fitted LENGTH -- the same kind of choice the UQ Dollar
+    # block above exists to avoid. Moved to a 60-day trailing window instead:
+    # the Bread/Sausage relationship drifts over the year, and a fixed window
+    # lets the daily refit track the current regime instead of being
+    # increasingly dominated by however many days have piled up. Set
+    # SIZZLE_WINDOW back to None to compare the expanding fit.
     #
     # Only the SIGN of the prediction is traded, so what matters is the ratio
     # between the coefficients, not their scale. That is why this survives the
     # early days when the estimates are still noisy: the ratio settles long
     # before the magnitudes do.
     SIZZLE_ROLLING = True
-    SIZZLE_WINDOW = None       # None = expanding; int = trailing window
+    SIZZLE_WINDOW = 60         # None = expanding; int = trailing window
     SIZZLE_MIN_SAMPLE = 20     # stay flat until the fit has this many days
-    # Retained only as the comparison case, used when SIZZLE_ROLLING is False.
-    # These are the full-sample values and are NOT causal.
-    SIZZLE_COEFFS = {"const": 0.0053, "Bread": 0.0769, "Sausage": 1.6780}
+    # const/Bread/Sausage below are retained only as the comparison case,
+    # used when SIZZLE_ROLLING is False. Those three are the full-sample fit
+    # and are NOT causal.
+    #
+    # MenuDash is different: it is NOT refit daily (there is no causal
+    # rolling equivalent below), so its coefficient and halflife are always
+    # the ones traded, in both branches -- see sizzle_menudash_term. Raw
+    # MenuDash adds almost nothing to this model (R2 0.8511 -> 0.8560): the
+    # posted daily number is mostly the app's rounding and surge noise.
+    # SMOOTHED MenuDash adds real signal (-> 0.8856), because the EWMA tracks
+    # the underlying labour cost that actually feeds Sizzle's price. Every
+    # halflife from 2 to 20 improves BOTH halves, so this is a plateau rather
+    # than a peak. Worth +$2,520 and +2.5pp directional accuracy (82.6->85.1%)
+    # measured against the full-sample Bread/Sausage fit above; not
+    # re-measured against the 60-day rolling refit it is now added on top of.
+    SIZZLE_COEFFS = {"const": 0.0053, "Bread": 0.0769,
+                     "Sausage": 1.6780, "MenuDash": 4.2432}
+    SIZZLE_MENUDASH_HALFLIFE = 5
 
     # ---- Thrifted Jeans -----------------------------------------------------
     # MA crossover, traded only while the slow MA is actually going somewhere.
@@ -206,7 +223,7 @@ class Algorithm():
     # the ones actually traded. "params" counts values fitted to the data.
     SPEC = {
         "UQ Dollar":         ("w = 90",    "mean(P[-90:]) - P[-1]",          1),
-        "Sausage Sizzle":    ("daily refit", "OLS on past days, sign traded",  1),
+        "Sausage Sizzle":    ("daily refit, w=60", "OLS on Bread/Sausage + smoothed MenuDash, sign traded", 3),
         "Boat Party Ticket": ("ensemble",  "sign vote, w in 3/5/10/20",      0),
         "Fintech Token":     ("w = 5",     "mean(P[-5:]) - P[-1] + vol gate", 1),
         "Thrifted Jeans":    ("MA 3/15",   "fast-slow, slope>5% over 10d",   4),
@@ -350,16 +367,43 @@ class Algorithm():
             return None
         return solution
 
+    def sizzle_menudash_term(self):
+        """
+        Smoothed-MenuDash contribution, added on top of the Bread/Sausage
+        prediction in sizzle_signal.
+
+        MenuDash enters SMOOTHED, not raw -- see the SIZZLE_COEFFS note above.
+        The EWMA is recomputed over full history each call (cheap at this
+        series length) and only its one-day CHANGE is used, so this returns
+        0.0 rather than None when history is short: it is a bolt-on term, not
+        a gate on the whole signal.
+        """
+        menudash = self.data.get("MenuDash")
+        if menudash is None or len(menudash) < 2:
+            return 0.0
+        alpha = 1 - 0.5 ** (1.0 / self.SIZZLE_MENUDASH_HALFLIFE)
+        ewma = menudash[0]
+        previous = ewma
+        for price in menudash[1:]:
+            previous = ewma
+            ewma = alpha * price + (1 - alpha) * ewma
+        return self.SIZZLE_COEFFS["MenuDash"] * (ewma - previous)
+
     def sizzle_signal(self):
         """
         Predict tomorrow's move in Sausage Sizzle from today's moves in Bread
-        and Sausage.
+        and Sausage, plus a smoothed-MenuDash term.
 
-        The coefficients come from a daily refit on past data. Returns None
-        while the fit is still too short to trust, which keeps us flat rather
-        than falling back on the static SIZZLE_COEFFS -- reverting to those
-        would reintroduce the full-sample fit being removed here, exactly as a
+        The Bread/Sausage coefficients come from a daily refit on a trailing
+        SIZZLE_WINDOW-day window of past data. Returns None while the fit is
+        still too short to trust, which keeps us flat rather than falling
+        back on the static SIZZLE_COEFFS -- reverting to those would
+        reintroduce the full-sample fit being removed here, exactly as a
         constant fallback would for the UQ Dollar anchor.
+
+        MenuDash is NOT part of that refit -- it is added via the fixed
+        SIZZLE_COEFFS["MenuDash"] coefficient in both branches, since there is
+        no causal rolling equivalent for it here.
         """
         moves = self.sizzle_inputs()
         if moves is None:
@@ -367,15 +411,17 @@ class Algorithm():
         d_bread, d_sausage = moves
 
         if not self.SIZZLE_ROLLING:
-            return (self.SIZZLE_COEFFS["const"]
-                    + self.SIZZLE_COEFFS["Bread"] * d_bread
-                    + self.SIZZLE_COEFFS["Sausage"] * d_sausage)
+            prediction = (self.SIZZLE_COEFFS["const"]
+                          + self.SIZZLE_COEFFS["Bread"] * d_bread
+                          + self.SIZZLE_COEFFS["Sausage"] * d_sausage)
+        else:
+            coefficients = self.sizzle_coefficients()
+            if coefficients is None:
+                return None
+            b_bread, b_sausage, const = coefficients
+            prediction = const + b_bread * d_bread + b_sausage * d_sausage
 
-        coefficients = self.sizzle_coefficients()
-        if coefficients is None:
-            return None
-        b_bread, b_sausage, const = coefficients
-        return const + b_bread * d_bread + b_sausage * d_sausage
+        return prediction + self.sizzle_menudash_term()
 
     def jeans_signal(self):
         """
