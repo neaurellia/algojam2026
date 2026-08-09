@@ -1,39 +1,3 @@
-"""Combined book: catherine's refined core plus hhanyu615's new instruments.
-
-Where both authors cover an instrument, the version with the smaller fit/test
-imbalance wins even when it earns less, because the Round 1 headline is not
-what gets scored:
-
-  UQ Dollar        neither. Both books hardcoded a $100 anchor; this one uses
-                   a 90-day rolling mean instead. Earns $3,237 less on Round 1
-                   and removes the only hardcoded LEVEL in the file -- see the
-                   UQ Dollar block below for why that trade is worth making.
-  Sausage Sizzle   neither. Both books hardcoded coefficients from an OLS fit
-                   over all 365 days and applied them from day 0, so the
-                   fit/test split never actually tested them. This one refits
-                   daily on past data only -- see the Sausage Sizzle block.
-  Boat Party       catherine's window ENSEMBLE over hhanyu615's w=5. The single
-                   window earns more ($59,050 vs $43,320) but was chosen by
-                   looking at results; the vote needs no choice at all.
-  Fintech Token    catherine's w=5 plus the volatility filter, measured at
-                   $91,724 against $88,422 without it.
-  Thrifted Jeans   catherine's (3,15,0.05) over hhanyu615's (5,20,0.02). The
-                   latter earns $81,664 but is the single best of 45 grid
-                   combinations, with a 24.5x fit/test ratio; the former is
-                   $63,816 at 1.7x.
-  Bread            catherine's k=7 momentum over hhanyu615's Donchian w=8.
-                   Donchian earns more ($26,985 vs $22,090) but splits
-                   $18,595/$8,390 across the halves against a near-perfect
-                   $11,070/$11,020. Set BREAD_DONCHIAN = True to compare.
-  Sausage          hhanyu615's Donchian w=8, new.
-  MenuDash         hhanyu615's z-score w=10, new. Far better than the static
-                   long this book previously assumed ($67,500 vs $12,750).
-
-Eight instruments do not fit in the $600K daily budget at full size --
-hhanyu615's book peaks at $603,291, which would have the engine zero every
-position on that day. enforce_budget below is what makes the combination
-viable.
-"""
 import math
 
 import numpy as np
@@ -54,17 +18,8 @@ class Algorithm():
         "MenuDash",
     ]
 
-    # Order in which instruments are kept when the daily budget gets tight:
-    # last entries are dropped first.
-    #
-    # Ranked by how much each signal can be relied on, then by how much budget
-    # it frees per dollar of P&L given up. Sizzle and UQ Dollar have the two
-    # highest captures and the evenest halves. MenuDash is dropped early
-    # despite earning well because it is the most expensive thing here
-    # (~$98K average exposure for 13.7% capture), so it frees the most room
-    # per dollar sacrificed. Thrifted Jeans is next because it is the only
-    # signal that fails a shuffle test. Liferaft is last: one unit is ~$150K
-    # and it pays no local P&L at all.
+    # Order in which instruments are trimmed when the daily budget gets tight:
+    # last entries are trimmed first.
     PRIORITY = [
         "Sausage Sizzle",
         "UQ Dollar",
@@ -77,144 +32,67 @@ class Algorithm():
         "Liferaft Ticket",
     ]
 
-    # Stay this far under the exchange's $600K cap. The engine values positions
-    # at the same prices used here, so without a margin a rounding edge could
-    # tip the total over -- and a breach zeroes EVERY position for the day, not
-    # just the offending one.
+    # Stay this far under the exchange's $600K cap. A breach zeroes EVERY
+    # position for the day, not just the offending one.
     BUDGET_CEILING = 580_000
 
     # ---- UQ Dollar ----------------------------------------------------------
-    # Hard $100 peg: ACF(1) of daily changes = -0.49, half-life 0.7 days.
-    #
-    # The anchor is a rolling mean, NOT the constant 100.0 this used to hold.
-    # That swap trades a fitted LEVEL for a fitted WINDOW, and the two fail very
-    # differently. Every other signal here is scale-free -- differences, means
-    # minus price, z-scores, breakouts -- so all of them survive a Round 2 that
-    # re-prices. A hardcoded level does not: if the peg sits anywhere but $100
-    # we hold +/-650 units the wrong way EVERY day, on ~$63K of exposure, and
-    # the most dependable line in the book becomes the largest loser.
-    #
-    # The window is benign where the level was not. Measured on Round 1, every
-    # setting from 45 to 150 lands between $60,210 and $65,488 -- the choice
-    # barely matters. 90 is mid-plateau, deliberately not the $65,488 peak at
-    # w=45: picking the best cell of a grid is what this change exists to avoid.
-    #
-    # Costs $3,237 against the constant's $64,552 (5% of the line, 0.8% of the
-    # book) and is slightly BETTER balanced across the halves, 1.06 vs 1.11.
-    # That is the insurance premium for removing the only single-point failure
-    # in the file.
-    #
-    # No warmup guard and no fallback to 100.0 on purpose. Slicing [-90:] on
-    # short history just yields an expanding mean, so the anchor self-calibrates
-    # from day 0 -- on day 0 it equals today's price, giving signal 0, i.e.
-    # flat, which is the correct view when there is no history. A constant
-    # fallback would reintroduce the exact level bet being removed here.
+    # Anchor is a rolling mean rather than a hardcoded $100 peg, so it
+    # survives a repricing instead of betting the peg never moves.
     UQ_ANCHOR_WINDOW = 90
 
     # ---- Boat Party Ticket --------------------------------------------------
-    # Averaged across four windows rather than committing to one. The parameter
-    # plateau is badly shaped -- positive at only 8 of 11 windows, swinging
-    # $100K across the range -- so any single choice is a guess.
+    # Averaged across four windows rather than committing to one.
     BOAT_WINDOWS = (3, 5, 10, 20)
 
     # ---- Fintech Token ------------------------------------------------------
-    # Single window: the plateau is positive at 11 of 11 settings with w=5
-    # mid-plateau, so there is nothing to average away.
     FINTECH_WINDOW = 5
 
     # Volatility filter: go flat after an outsized single-day move, resume once
-    # calm. MEASURED, and it earns its place -- but NOT for the reason it was
-    # built. The theory was that it would rescue the days 120-150 crash. It
-    # does not: that window loses $16,945 either way and none of the 18 days it
-    # pauses fall inside it. It sits out three other volatility clusters
-    # instead, worth +$6,395 on the fitted half and -$3,093 on the held-out
-    # half. Treat as provisional: a change that works for different reasons
-    # than predicted is not yet understood.
+    # calm.
     FT_JUMP_PAUSE = True
     FT_JUMP_SIGMA = 3.0        # a move over N rolling std devs starts a pause
     FT_CALM_DAYS = 2           # consecutive quiet days needed to resume
     FT_VOL_WINDOW = 20
 
     # ---- Sausage Sizzle -----------------------------------------------------
-    # Sizzle re-prices off the PREVIOUS day's moves in its inputs: d(Sausage)
-    # leads d(Sizzle) by one day at corr +0.61 and d(Bread) at +0.71, while
-    # contemporaneous correlation is ~0.02. It is a cost passthrough, not a
-    # chart pattern, which is why it generalises at 90.6% capture.
-    #
-    # The coefficients are now REFIT EVERY DAY on history up to that day, where
-    # they used to be the three constants below -- an OLS fit over all 365 days,
-    # applied from day 0. That fit was never wrong, but it was never TESTED
-    # either: both halves of the fit/test split were in-sample for it, so
-    # Sizzle's 90.6% capture was the one number in this book the split did not
-    # validate. Refitting causally makes the reported number mean what every
-    # other line's number means.
-    #
-    # Was expanding (SIZZLE_WINDOW = None) on the reasoning that a rolling
-    # window adds a fitted LENGTH -- the same kind of choice the UQ Dollar
-    # block above exists to avoid. Moved to a 60-day trailing window instead:
-    # the Bread/Sausage relationship drifts over the year, and a fixed window
-    # lets the daily refit track the current regime instead of being
-    # increasingly dominated by however many days have piled up. Set
-    # SIZZLE_WINDOW back to None to compare the expanding fit.
-    #
+    # Coefficients are refit daily on past data only (see sizzle_coefficients),
+    # rather than a single OLS fit over the whole series applied from day 0.
     # Only the SIGN of the prediction is traded, so what matters is the ratio
-    # between the coefficients, not their scale. That is why this survives the
-    # early days when the estimates are still noisy: the ratio settles long
-    # before the magnitudes do.
+    # between the coefficients, not their scale.
     SIZZLE_ROLLING = True
     SIZZLE_WINDOW = 60         # None = expanding; int = trailing window
     SIZZLE_MIN_SAMPLE = 20     # stay flat until the fit has this many days
-    # const/Bread/Sausage below are retained only as the comparison case,
-    # used when SIZZLE_ROLLING is False. Those three are the full-sample fit
-    # and are NOT causal.
+    # const/Bread/Sausage below are the full-sample (non-causal) fit, used
+    # only when SIZZLE_ROLLING is False.
     #
-    # MenuDash is different: it is NOT refit daily (there is no causal
-    # rolling equivalent below), so its coefficient and halflife are always
-    # the ones traded, in both branches -- see sizzle_menudash_term. Raw
-    # MenuDash adds almost nothing to this model (R2 0.8511 -> 0.8560): the
-    # posted daily number is mostly the app's rounding and surge noise.
-    # SMOOTHED MenuDash adds real signal (-> 0.8856), because the EWMA tracks
-    # the underlying labour cost that actually feeds Sizzle's price. Every
-    # halflife from 2 to 20 improves BOTH halves, so this is a plateau rather
-    # than a peak. Worth +$2,520 and +2.5pp directional accuracy (82.6->85.1%)
-    # measured against the full-sample Bread/Sausage fit above; not
-    # re-measured against the 60-day rolling refit it is now added on top of.
+    # MenuDash is NOT refit daily -- there is no causal rolling equivalent --
+    # so its coefficient and halflife below are always what's traded, in both
+    # branches. It enters SMOOTHED (EWMA), not raw; see sizzle_menudash_term.
     SIZZLE_COEFFS = {"const": 0.0053, "Bread": 0.0769,
                      "Sausage": 1.6780, "MenuDash": 4.2432}
     SIZZLE_MENUDASH_HALFLIFE = 5
 
     # ---- Thrifted Jeans -----------------------------------------------------
     # MA crossover, traded only while the slow MA is actually going somewhere.
-    # Across a 45-combination grid every setting was positive overall, but the
-    # median first half earned -$688: the edge exists only in trending
-    # stretches. This is the most selective setting tested and the only one
-    # with a fit/test ratio near 1.
     TJ_FAST_WINDOW = 3
     TJ_SLOW_WINDOW = 15
     TJ_SLOPE_LOOKBACK = 10     # compare the slow MA against N days ago
     TJ_MIN_SLOPE = 0.05        # need >5% change over that span to trade
 
     # ---- Sausage ------------------------------------------------------------
-    # Donchian breakout. Same-length move autocorrelation peaks at +0.324 for
-    # 5d and 8d -- the highest of any instrument here -- then reverses hard at
-    # 20d (-0.354) and 30d (-0.702). A slope filter was tested and HURT badly
-    # ($1,950 vs $10,500): unlike Thrifted Jeans, Sausage has no sustained
-    # sideways ranges, so filtering only keeps us out of live trends.
+    # Donchian breakout.
     SAUSAGE_WINDOW = 8
 
     # ---- Bread --------------------------------------------------------------
-    # Momentum against a week ago. hhanyu615's Donchian w=8 earns more
-    # ($26,985 vs $22,090) but splits $18,595/$8,390 across the halves against
-    # this one's $11,070/$11,020 -- the evenest split in either book. Flip
-    # BREAD_DONCHIAN to compare them directly.
+    # Momentum against a week ago. Flip BREAD_DONCHIAN to trade the Donchian
+    # alternative instead.
     BREAD_LOOKBACK = 7
     BREAD_DONCHIAN = False
     BREAD_WINDOW = 8
 
     # ---- MenuDash -----------------------------------------------------------
-    # MenuDash posts a noisy read on a smooth underlying cost. The noise is
-    # small and frequent (1-3 day wobbles) rather than large and rare, so a
-    # short-window z-score with a deadband captures it.
+    # Short-window z-score with a deadband.
     MENUDASH_WINDOW = 10
     MENUDASH_THRESHOLD = 0.5
 
@@ -265,12 +143,8 @@ class Algorithm():
     def ensemble_reversion_signal(self, instrument, windows):
         """
         Majority vote of the reversion signal across several windows. Each
-        window contributes only its DIRECTION, not its magnitude.
-
-        Averaging the raw signals instead would quietly reweight the vote: a
-        20-day mean sits much further from today's price than a 3-day mean, so
-        the longest window would dominate and the ensemble would just be a
-        slow signal wearing a disguise. Voting keeps every horizon equal.
+        window contributes only its DIRECTION, not its magnitude, so the
+        longest window can't dominate by sitting further from today's price.
         """
         votes = []
         for window in windows:
@@ -305,8 +179,7 @@ class Algorithm():
 
         Deliberately NOT reversion_signal, which returns None until its window
         fills and would sit flat for the first 90 days. Slicing a short list
-        just yields an expanding mean, so the anchor is usable from day 0 and
-        never depends on a hardcoded level.
+        just yields an expanding mean, so the anchor is usable from day 0.
         """
         recent = np.array(self.data["UQ Dollar"][-self.UQ_ANCHOR_WINDOW:],
                           dtype=float)
@@ -330,8 +203,7 @@ class Algorithm():
         Training pairs are (input moves on day k, Sizzle move on day k+1) for
         every k where both sides are known. Today's own input move is
         deliberately NOT a training row: the Sizzle move it predicts has not
-        happened yet, and including it is precisely the one-day lookahead this
-        method exists to remove.
+        happened yet, and including it would be a one-day lookahead.
 
         Returns None until SIZZLE_MIN_SAMPLE pairs exist, or if the inputs are
         collinear enough that the fit is not defined.
@@ -372,11 +244,9 @@ class Algorithm():
         Smoothed-MenuDash contribution, added on top of the Bread/Sausage
         prediction in sizzle_signal.
 
-        MenuDash enters SMOOTHED, not raw -- see the SIZZLE_COEFFS note above.
-        The EWMA is recomputed over full history each call (cheap at this
-        series length) and only its one-day CHANGE is used, so this returns
-        0.0 rather than None when history is short: it is a bolt-on term, not
-        a gate on the whole signal.
+        The EWMA is recomputed over full history each call and only its
+        one-day CHANGE is used, so this returns 0.0 rather than None when
+        history is short: it is a bolt-on term, not a gate on the signal.
         """
         menudash = self.data.get("MenuDash")
         if menudash is None or len(menudash) < 2:
@@ -397,13 +267,7 @@ class Algorithm():
         The Bread/Sausage coefficients come from a daily refit on a trailing
         SIZZLE_WINDOW-day window of past data. Returns None while the fit is
         still too short to trust, which keeps us flat rather than falling
-        back on the static SIZZLE_COEFFS -- reverting to those would
-        reintroduce the full-sample fit being removed here, exactly as a
-        constant fallback would for the UQ Dollar anchor.
-
-        MenuDash is NOT part of that refit -- it is added via the fixed
-        SIZZLE_COEFFS["MenuDash"] coefficient in both branches, since there is
-        no causal rolling equivalent for it here.
+        back on the static SIZZLE_COEFFS.
         """
         moves = self.sizzle_inputs()
         if moves is None:
@@ -485,7 +349,7 @@ class Algorithm():
         the level has changed, so the rolling mean is now an average of two
         different regimes and cannot be reverted to. Sit out until the price
         has been quiet for FT_CALM_DAYS in a row; any loud day resets that
-        count, so a choppy settling period keeps us out until it truly calms.
+        count.
         """
         prices = self.data["Fintech Token"]
         if len(prices) < self.FT_VOL_WINDOW + 1:
@@ -545,27 +409,7 @@ class Algorithm():
 
         Walks reverse PRIORITY and SHRINKS each position by just enough units
         to close the gap, only zeroing an instrument when trimming it whole
-        still is not enough. Reverse-priority order still protects Sizzle and
-        UQ Dollar -- the trimming starts at the least trusted end -- so this
-        keeps the old ordering logic and only changes how much gets taken.
-
-        This used to zero whole instruments, which was wildly disproportionate.
-        Measured on Round 1: the guard fires on 30 of 365 days, drops MenuDash
-        every single time and nothing else ever, and the median day needed
-        $8,340 while freeing $147,000 -- an 18.6x overshoot. Day 44 needed $373
-        and freed $142,500. MenuDash at ~75,000 units and ~$1.87 only had to
-        give up ~6% of its position on a typical firing.
-
-        Trimming instead is worth $11,511 (total $423,294 -> $434,805), and
-        essentially all of it lands in the held-out half: FIT moves -$1,465
-        while TEST moves +$12,975. That asymmetry is expected rather than
-        lucky, because this adds NO parameters -- given that $X must be shed,
-        shedding exactly $X rather than 18x $X is not a view about the data.
-
-        The old comment argued against "scaling everything down proportionally"
-        and it was right to: that would shrink the best signals to fund the
-        worst. This is the different thing it did not consider -- scaling only
-        the marginal instrument, the one already chosen to be sacrificed.
+        still is not enough.
         """
         def exposure():
             return sum(abs(position) * self.data[instrument][-1]
@@ -621,18 +465,15 @@ class Algorithm():
             # For each instrument initilise desired position to zero
             desiredPositions[instrument] = 0
 
-        # IMPLEMENT CODE HERE TO DECIDE WHAT POSITIONS YOU WANT
-        #######################################################################
         # Display the current trading day
         print("Starting Algorithm for Day:", self.day)
 
         # Greedy sizing: full position limit in whichever direction the signal
-        # points, then enforce_budget trims whole instruments if the day does
-        # not fit under the cap.
+        # points, then enforce_budget trims positions if the day does not
+        # fit under the cap.
         for instrument in self.ENABLED:
             signal = self.get_signal(instrument)
             if signal is None or signal == 0:
-                # Not enough history yet, or no view today. Stay flat.
                 continue
             limit = positionLimits[instrument]
             desiredPositions[instrument] = limit if signal > 0 else -limit
@@ -643,6 +484,4 @@ class Algorithm():
 
         # Display the end of trading day
         print("Ending Algorithm for Day:", self.day, "\n")
-        #######################################################################
-        # Return the desired positions
         return desiredPositions
