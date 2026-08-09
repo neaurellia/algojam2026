@@ -8,7 +8,10 @@ what gets scored:
                    a 90-day rolling mean instead. Earns $3,237 less on Round 1
                    and removes the only hardcoded LEVEL in the file -- see the
                    UQ Dollar block below for why that trade is worth making.
-  Sausage Sizzle   identical in both
+  Sausage Sizzle   neither. Both books hardcoded coefficients from an OLS fit
+                   over all 365 days and applied them from day 0, so the
+                   fit/test split never actually tested them. This one refits
+                   daily on past data only -- see the Sausage Sizzle block.
   Boat Party       catherine's window ENSEMBLE over hhanyu615's w=5. The single
                    window earns more ($59,050 vs $43,320) but was chosen by
                    looking at results; the vote needs no choice at all.
@@ -136,8 +139,31 @@ class Algorithm():
     # Sizzle re-prices off the PREVIOUS day's moves in its inputs: d(Sausage)
     # leads d(Sizzle) by one day at corr +0.61 and d(Bread) at +0.71, while
     # contemporaneous correlation is ~0.02. It is a cost passthrough, not a
-    # chart pattern, which is why it generalises at 90.6% capture. The
-    # coefficients are estimated by OLS rather than chosen. Leave them alone.
+    # chart pattern, which is why it generalises at 90.6% capture.
+    #
+    # The coefficients are now REFIT EVERY DAY on history up to that day, where
+    # they used to be the three constants below -- an OLS fit over all 365 days,
+    # applied from day 0. That fit was never wrong, but it was never TESTED
+    # either: both halves of the fit/test split were in-sample for it, so
+    # Sizzle's 90.6% capture was the one number in this book the split did not
+    # validate. Refitting causally makes the reported number mean what every
+    # other line's number means.
+    #
+    # Expanding rather than fixed-length on purpose. A rolling window would add
+    # a fitted LENGTH -- the same kind of choice the UQ Dollar block above
+    # exists to avoid -- while an expanding fit has nothing to tune and uses
+    # every observation it is entitled to. Set SIZZLE_WINDOW to an int to
+    # compare a trailing window; None means use all available history.
+    #
+    # Only the SIGN of the prediction is traded, so what matters is the ratio
+    # between the coefficients, not their scale. That is why this survives the
+    # early days when the estimates are still noisy: the ratio settles long
+    # before the magnitudes do.
+    SIZZLE_ROLLING = True
+    SIZZLE_WINDOW = None       # None = expanding; int = trailing window
+    SIZZLE_MIN_SAMPLE = 20     # stay flat until the fit has this many days
+    # Retained only as the comparison case, used when SIZZLE_ROLLING is False.
+    # These are the full-sample values and are NOT causal.
     SIZZLE_COEFFS = {"const": 0.0053, "Bread": 0.0769, "Sausage": 1.6780}
 
     # ---- Thrifted Jeans -----------------------------------------------------
@@ -180,7 +206,7 @@ class Algorithm():
     # the ones actually traded. "params" counts values fitted to the data.
     SPEC = {
         "UQ Dollar":         ("w = 90",    "mean(P[-90:]) - P[-1]",          1),
-        "Sausage Sizzle":    ("no window", "A + B*dBread + C*dSausage",      3),
+        "Sausage Sizzle":    ("daily refit", "OLS on past days, sign traded",  1),
         "Boat Party Ticket": ("ensemble",  "sign vote, w in 3/5/10/20",      0),
         "Fintech Token":     ("w = 5",     "mean(P[-5:]) - P[-1] + vol gate", 1),
         "Thrifted Jeans":    ("MA 3/15",   "fast-slow, slope>5% over 10d",   4),
@@ -269,19 +295,87 @@ class Algorithm():
                           dtype=float)
         return recent.mean() - recent[-1]
 
-    def sizzle_signal(self):
-        """
-        Predict tomorrow's move in Sausage Sizzle from today's moves in Bread
-        and Sausage. Returns None until both inputs have a previous day to
-        difference against.
-        """
-        prediction = self.SIZZLE_COEFFS["const"]
+    def sizzle_inputs(self):
+        """Today's moves in the two cost inputs, or None if unavailable."""
+        moves = []
         for name in ("Bread", "Sausage"):
             prices = self.data.get(name)
             if prices is None or len(prices) < 2:
                 return None
-            prediction += self.SIZZLE_COEFFS[name] * (prices[-1] - prices[-2])
-        return prediction
+            moves.append(prices[-1] - prices[-2])
+        return moves
+
+    def sizzle_coefficients(self):
+        """
+        Least-squares fit of tomorrow's Sizzle move on today's input moves,
+        using only days that have already happened.
+
+        Training pairs are (input moves on day k, Sizzle move on day k+1) for
+        every k where both sides are known. Today's own input move is
+        deliberately NOT a training row: the Sizzle move it predicts has not
+        happened yet, and including it is precisely the one-day lookahead this
+        method exists to remove.
+
+        Returns None until SIZZLE_MIN_SAMPLE pairs exist, or if the inputs are
+        collinear enough that the fit is not defined.
+        """
+        series = {}
+        for name in ("Sausage Sizzle", "Bread", "Sausage"):
+            prices = self.data.get(name)
+            if prices is None or len(prices) < 3:
+                return None
+            series[name] = np.diff(np.asarray(prices, dtype=float))
+
+        # diff[i] is the move INTO day i+1, so dropping the last input row and
+        # the first target row lines each input move up with the Sizzle move
+        # one day after it.
+        targets = series["Sausage Sizzle"][1:]
+        features = np.column_stack([
+            series["Bread"][:-1],
+            series["Sausage"][:-1],
+            np.ones(len(targets)),
+        ])
+
+        if self.SIZZLE_WINDOW is not None:
+            targets = targets[-self.SIZZLE_WINDOW:]
+            features = features[-self.SIZZLE_WINDOW:]
+
+        if len(targets) < self.SIZZLE_MIN_SAMPLE:
+            return None
+
+        solution, _, rank, _ = np.linalg.lstsq(features, targets, rcond=None)
+        if rank < features.shape[1]:
+            # Underdetermined: lstsq still returns a vector, but it is the
+            # minimum-norm one rather than a fit, so it says nothing.
+            return None
+        return solution
+
+    def sizzle_signal(self):
+        """
+        Predict tomorrow's move in Sausage Sizzle from today's moves in Bread
+        and Sausage.
+
+        The coefficients come from a daily refit on past data. Returns None
+        while the fit is still too short to trust, which keeps us flat rather
+        than falling back on the static SIZZLE_COEFFS -- reverting to those
+        would reintroduce the full-sample fit being removed here, exactly as a
+        constant fallback would for the UQ Dollar anchor.
+        """
+        moves = self.sizzle_inputs()
+        if moves is None:
+            return None
+        d_bread, d_sausage = moves
+
+        if not self.SIZZLE_ROLLING:
+            return (self.SIZZLE_COEFFS["const"]
+                    + self.SIZZLE_COEFFS["Bread"] * d_bread
+                    + self.SIZZLE_COEFFS["Sausage"] * d_sausage)
+
+        coefficients = self.sizzle_coefficients()
+        if coefficients is None:
+            return None
+        b_bread, b_sausage, const = coefficients
+        return const + b_bread * d_bread + b_sausage * d_sausage
 
     def jeans_signal(self):
         """
